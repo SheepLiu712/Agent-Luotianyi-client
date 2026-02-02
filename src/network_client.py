@@ -11,6 +11,7 @@ class NetworkClient:
     def __init__(self, base_url="http://127.0.0.1:8000"):
         self.base_url = base_url
         self.user_id = None
+        self.token = None
         self.logger = get_logger(self.__class__.__name__)
 
 
@@ -21,7 +22,7 @@ class NetworkClient:
             if not encrypted_password:
                 return False, "Failed to encrypt password. Check server connection."
                 
-            resp = requests.post(f"{self.base_url}/login", json={
+            resp = requests.post(f"{self.base_url}/auth/login", json={
                 "username": username, 
                 "password": encrypted_password,
                 "request_token": request_token
@@ -29,12 +30,11 @@ class NetworkClient:
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
+                self.token = data.get("token")
                 if request_token:
-                    token = data.get("token")
-                    do_auto_login = True
+                    credential.save_credentials(self.user_id, self.token, True)
                 else:
-                    do_auto_login = False
-                credential.save_credentials(self.user_id, token, do_auto_login)
+                    credential.save_credentials(self.user_id, None, False)
 
                 return True, "Login Successful"
             else:
@@ -48,11 +48,12 @@ class NetworkClient:
 
     def auto_login(self, username: str, token: str) -> bool:
         try:
-            resp = requests.post(f"{self.base_url}/auto_login", json={"username": username, "token": token})
+            resp = requests.post(f"{self.base_url}/auth/auto_login", json={"username": username, "token": token})
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
-                credential.save_credentials(self.user_id, token, True)
+                self.token = data.get("token")
+                credential.save_credentials(self.user_id, self.token, True)
                 return True
             return False
         except Exception as e:
@@ -65,7 +66,7 @@ class NetworkClient:
             if not encrypted_password:
                 return False, "Failed to encrypt password. Check server connection."
 
-            resp = requests.post(f"{self.base_url}/register", 
+            resp = requests.post(f"{self.base_url}/auth/register", 
                                  json={"username": username, "password": encrypted_password, "invite_code": invite_code})
             if resp.status_code == 200:
                 return True, "Registration Successful"
@@ -84,7 +85,7 @@ class NetworkClient:
             return
             
         try:
-            payload = {"text": text, "user_id": self.user_id}
+            payload = {"text": text, "user_id": self.user_id, "token": self.token}
             # Use stream=True for SSE
             with requests.post(f"{self.base_url}/chat", json=payload, stream=True) as resp:
                 if resp.status_code == 200:
@@ -110,7 +111,7 @@ class NetworkClient:
             return [], 0
             
         try:
-            params = {"user_id": self.user_id, "count": count, "end_index": end_index}
+            params = {"user_id": self.user_id, "token": self.token, "count": count, "end_index": end_index}
             resp = requests.get(f"{self.base_url}/history", params=params)
             if resp.status_code == 200:
                 data = resp.json()

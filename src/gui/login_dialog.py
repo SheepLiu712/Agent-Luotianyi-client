@@ -119,7 +119,7 @@ class LoginDialog(QDialog):
         layout.addStretch()
         layout.setContentsMargins(20, 20, 20, 20)
         layout.addWidget(self.r_btn)
-        request_token = self.l_auto_login.isChecked()
+        self.register_tab.setLayout(layout)
 
     def do_login(self):
         username = self.l_username.text()

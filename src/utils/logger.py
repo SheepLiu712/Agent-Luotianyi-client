@@ -18,7 +18,7 @@ _LOGGER_INSTANCES: Dict[str, logging.Logger] = {}
 _DEFAULT_CONFIG = {
     "level": "DEBUG",
     "format": "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}",
-    "file": "./logs/agent.log",
+    "file": "./logs/AgentLuo.log",
     "rotation": "20 MB",
     "retention": "30 days",
     "console_output": True,
