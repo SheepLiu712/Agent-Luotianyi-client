@@ -46,13 +46,19 @@ class AgentBinder(QObject):
                     expression = response.get("expression", None)
                     audio_data = response.get("audio", b"")
                     audio_data = decode_from_base64(audio_data)
-                    self.start_mouth_move(audio_data)
 
-                    if expression and self.model:
-                        self.model.set_expression_by_cmd(expression)
-                    self.stop_thinking()
-                    self.response_signal.emit(reply_text)
-                    play_audio(audio_data)
+                    if audio_data:
+                        self.start_mouth_move(audio_data)
+                        if expression and self.model:
+                            self.model.set_expression_by_cmd(expression)
+                        self.stop_thinking()
+                        self.response_signal.emit(reply_text)
+                        play_audio(audio_data)
+                    else:
+                        time.sleep(0.1)  # 短暂休眠，确保UI有时间更新
+                        self.stop_thinking()
+                        self.response_signal.emit(reply_text)
+
  
                     
             except Exception as e:
@@ -100,6 +106,8 @@ class AgentBinder(QObject):
         """
         开始思考，显示动态气泡
         """
+        if self.thinking:
+            return  # 已经在思考中
         if self.thinking_thread and self.thinking_thread.is_alive():
             return  # 已经在思考中
 

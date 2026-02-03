@@ -11,7 +11,8 @@ class NetworkClient:
     def __init__(self, base_url="http://127.0.0.1:8000"):
         self.base_url = base_url
         self.user_id = None
-        self.token = None
+        self.message_token = None
+        self.login_token = None
         self.logger = get_logger(self.__class__.__name__)
 
 
@@ -30,9 +31,10 @@ class NetworkClient:
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
-                self.token = data.get("token")
+                self.login_token = data.get("login_token")
+                self.message_token = data.get("message_token")
                 if request_token:
-                    credential.save_credentials(self.user_id, self.token, True)
+                    credential.save_credentials(self.user_id, self.login_token, True)
                 else:
                     credential.save_credentials(self.user_id, None, False)
 
@@ -52,8 +54,9 @@ class NetworkClient:
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
-                self.token = data.get("token")
-                credential.save_credentials(self.user_id, self.token, True)
+                self.login_token = data.get("login_token")
+                self.message_token = data.get("message_token")
+                credential.save_credentials(self.user_id, self.login_token, True)
                 return True
             return False
         except Exception as e:
@@ -85,7 +88,7 @@ class NetworkClient:
             return
             
         try:
-            payload = {"text": text, "user_id": self.user_id, "token": self.token}
+            payload = {"text": text, "user_id": self.user_id, "token": self.message_token}
             # Use stream=True for SSE
             with requests.post(f"{self.base_url}/chat", json=payload, stream=True) as resp:
                 if resp.status_code == 200:
@@ -111,7 +114,7 @@ class NetworkClient:
             return [], 0
             
         try:
-            params = {"user_id": self.user_id, "token": self.token, "count": count, "end_index": end_index}
+            params = {"user_id": self.user_id, "token": self.message_token, "count": count, "end_index": end_index}
             resp = requests.get(f"{self.base_url}/history", params=params)
             if resp.status_code == 200:
                 data = resp.json()

@@ -54,8 +54,13 @@ def decode_from_base64(base64_str: str) -> bytes:
     Returns:
         bytes: 解码后的音频数据
     """
-
-    return base64.b64decode(base64_str)
+    if not base64_str:
+        return b""
+    try:
+        return base64.b64decode(base64_str)
+    except Exception as e:
+        logger.error(f"Error decoding base64 audio: {e}")
+        return b""
 
 def save_to_wav(wav_data: bytes) -> str:
     """
