@@ -6,14 +6,17 @@ from .safety import credential, encrypt_pwd
 
 import os
 import json
-
 class NetworkClient:
-    def __init__(self, base_url="http://127.0.0.1:8000"):
+    def __init__(self, base_url=None):
+        self.logger = get_logger(self.__class__.__name__)
+        if not base_url:
+            print("Base URL not provided, using default.")
+            base_url = "https://equilibrium-copyrighted-singer-smoke.trycloudflare.com"
         self.base_url = base_url
         self.user_id = None
         self.message_token = None
         self.login_token = None
-        self.logger = get_logger(self.__class__.__name__)
+
 
 
 
@@ -88,7 +91,7 @@ class NetworkClient:
             return
             
         try:
-            payload = {"text": text, "user_id": self.user_id, "token": self.message_token}
+            payload = {"text": text, "username": self.user_id, "token": self.message_token}
             # Use stream=True for SSE
             with requests.post(f"{self.base_url}/chat", json=payload, stream=True) as resp:
                 if resp.status_code == 200:
@@ -114,7 +117,7 @@ class NetworkClient:
             return [], 0
             
         try:
-            params = {"user_id": self.user_id, "token": self.message_token, "count": count, "end_index": end_index}
+            params = {"username": self.user_id, "token": self.message_token, "count": count, "end_index": end_index}
             resp = requests.get(f"{self.base_url}/history", params=params)
             if resp.status_code == 200:
                 data = resp.json()

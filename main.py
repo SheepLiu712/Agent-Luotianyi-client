@@ -1,10 +1,20 @@
 import sys
 import os
-import time
-import threading
+
+# Determine execution path and set up environment
+if getattr(sys, 'frozen', False):
+    # Running in a bundle (likely PyInstaller)
+    # For OneDir: sys.executable is in the bundle dir.
+    # Resources are strictly relative to the executable location (or we expect them there).
+    cwd = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    # Running in a normal python environment
+    cwd = os.path.dirname(os.path.abspath(__file__))
+
+# Change working directory to ensure relative paths work (crucial for config/res)
+os.chdir(cwd)
 
 # Ensure src is in path
-cwd = os.path.dirname(os.path.abspath(__file__))
 if cwd not in sys.path:
     sys.path.append(cwd)
 
@@ -28,7 +38,7 @@ if __name__ == "__main__":
     app = ui_init()
     
     # Login Flow
-    network_client = NetworkClient()
+    network_client = NetworkClient(base_url=config.get("base_url"))
     login_dialog = LoginDialog(network_client)
     
     # Try auto login

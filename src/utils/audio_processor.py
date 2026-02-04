@@ -1,8 +1,9 @@
-import librosa
+import soundfile as sf
 import numpy as np
 import winsound
 import base64
 from .logger import get_logger
+import io
 import os
 from datetime import datetime
 
@@ -20,19 +21,43 @@ def extract_audio_amplitude(wav: str | bytes, fps: int = 30) -> np.ndarray:
         numpy.ndarray: 归一化后的振幅数组，值范围 [0, 1]
     """
     # 加载音频，sr=None 保持原始采样率
-    if isinstance(wav, bytes):
-        import io
-        y, sr = librosa.load(io.BytesIO(wav), sr=None)
-    else:
-        y, sr = librosa.load(wav, sr=None)
-    
+    try:
+        if isinstance(wav, bytes):
+            # soundfile.read supports file-like objects
+            y, sr = sf.read(io.BytesIO(wav))
+        else:
+            y, sr = sf.read(wav)
+    except Exception as e:
+        logger.error(f"Failed to load audio with soundfile: {e}")
+        return np.array([0.0])
+
+    # 如果是多声道，取平均值转为单声道
+    if y.ndim > 1:
+        y = np.mean(y, axis=1)
+
     # 计算 hop_length 以匹配目标 fps
     # hop_length 是两帧之间的样本数
     hop_length = int(sr / fps)
     
+    if hop_length <= 0:
+        return np.array([0.0])
+
     # 计算 RMS (Root Mean Square) 振幅
-    # frame_length 通常设为 hop_length 或稍大
-    rms = librosa.feature.rms(y=y, frame_length=hop_length, hop_length=hop_length)[0]
+    # Manual sliding window RMS
+    # Pad y to handle the last frame
+    pad_width = hop_length - (len(y) % hop_length)
+    if pad_width != hop_length:
+        y = np.pad(y, (0, pad_width), mode='constant')
+        
+    # Reshape to (num_frames, hop_length) and calculate RMS
+    # This is a non-overlapping window approximation, which is close enough for lip sync
+    # If we want overlapping, we'd need stride_tricks, but simple non-overlapping is faster and usually fine.
+    # Librosa's rms uses centered frames which overlap.
+    # For lip sync, simple block RMS is often sufficient.
+    
+    num_frames = len(y) // hop_length
+    frames = y.reshape(num_frames, hop_length)
+    rms = np.sqrt(np.mean(frames**2, axis=1))
     
     # 归一化处理
     # 可以根据需要调整归一化策略，例如使用对数刻度或设置阈值
