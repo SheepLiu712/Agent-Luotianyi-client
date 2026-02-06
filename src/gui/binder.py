@@ -1,8 +1,9 @@
 import time
 import threading
+import queue
 from PySide6.QtCore import QObject, Signal
 from ..live2d import Live2dModel, live2d
-from ..utils.audio_processor import extract_audio_amplitude, decode_from_base64, play_audio, save_to_wav
+from ..utils.audio_processor import extract_audio_amplitude, decode_from_base64, play_audio, save_to_wav, AudioPlayerStream, calculate_amplitude_from_chunk
 from ..utils.logger import get_logger
 import numpy as np
 from typing import Dict, Callable
@@ -15,7 +16,7 @@ class AgentBinder(QObject):
     free_signal = Signal(bool)
     history_signal = Signal(list, int)  # history_list, current_top_index
 
-    def __init__(self, hear_callback: Callable[[str], Dict], history_callback: Callable[[int, int], tuple] = None):
+    def __init__(self, hear_callback: Callable[[str], Dict], hear_picture_callback: Callable[[str], Dict] = None, history_callback: Callable[[int, int], tuple] = None):
         super().__init__()
         self.logger = get_logger(self.__class__.__name__)
         if hear_callback:
@@ -23,47 +24,120 @@ class AgentBinder(QObject):
         else:
             raise ValueError("hear_callback must be provided")
         
+        self.hear_picture_callback = hear_picture_callback
         self.history_callback = history_callback
     
         self.thinking_thread: threading.Thread | None = None
         self.thinking: bool = False
         self.model: Live2dModel | None = None
 
+    def _mouth_move_stream(self, init_value, mouth_queue: queue.Queue, stop_event: threading.Event, fps=60):
+        while not stop_event.is_set():
+            try:
+                amps = mouth_queue.get(timeout=0.05)
+                if amps is None:
+                    break
+                
+                # We have a chunk of amplitudes (frames)
+                start_time = time.time()
+                while True:
+                    elapesed = time.time() - start_time
+                    if elapesed >= len(amps) / fps:
+                        break
+                    goal_idx = int(elapesed * fps)
+                    target_val = amps[goal_idx]
+                    self.model.SetParameterValue("ParamMouthOpenY", target_val, weight=0.3)
+                    time.sleep(1 / fps)
+
+            except queue.Empty:
+                continue
+                
+        if self.model:
+            self.model.SetParameterValue("ParamMouthOpenY", init_value, weight=1)
+
+    def _process_stream_response(self, response_generator):
+        """Unified streaming processor for hear and hear_picture"""
+        player = AudioPlayerStream()
+        mouth_queue = queue.Queue()
+        stop_mouth_event = threading.Event()
+        
+        init_value = self.model.GetParameterValue("ParamMouthOpenY") if self.model else 0
+        mouth_thread = threading.Thread(
+            target=self._mouth_move_stream, 
+            args=(init_value, mouth_queue, stop_mouth_event)
+        )
+        mouth_thread.daemon = True
+        mouth_thread.start()
+
+        is_first_audio = True
+
+        try:
+            for response in response_generator:
+                reply_text = response.get("text", "")
+                expression = response.get("expression", None)
+                audio_data = decode_from_base64(response.get("audio", b""))
+                is_final_package = response.get("is_final_package", False)
+                print(is_final_package)
+                
+                if reply_text:
+                     self.stop_thinking()
+                     self.response_signal.emit(reply_text)
+                
+                if expression and self.model:
+                    self.model.set_expression_by_cmd(expression)
+
+                if audio_data:
+                    # Feed Mouth
+                    amps = []
+                    if is_first_audio:
+                         amps = extract_audio_amplitude(audio_data, fps=60)
+                         is_first_audio = False
+                    else:
+                        if player.header_parsed:
+                            amps = calculate_amplitude_from_chunk(
+                                audio_data, 
+                                player.samplerate, 
+                                player.channels, 
+                                player.subtype,
+                                fps=60
+                            )
+
+                    # Feed Audio
+                    if len(amps) > 0:
+                        mouth_queue.put(amps)
+                    player.append_buffer(audio_data)
+                    
+                    if is_final_package:
+                        player.wait_until_empty()
+                        player.header_parsed = False  # Reset for next audio
+                        is_first_audio = True
+                        self.start_thinking()
+                else:
+                    # Allow UI updates for text-only frames
+                    time.sleep(0.01)
+                    self.start_thinking()
+                print("Processed a response chunk.")
+
+        except Exception as e:
+            self.logger.error(f"Stream Error: {e}")
+        finally:
+            stop_mouth_event.set()
+            mouth_thread.join(timeout=1.0)
+            self.stop_thinking()
+            self.finish_reply()
+
     def hear(self, text: str):
         """
         接收用户输入的文本，并在后台处理
         """
-        
         def _hear(text:str):
             self.start_thinking()
             try:
                 # recv_callback return a generator for SSE
                 response_generator = self.recv_callback(text)
-                
-                for response in response_generator:
-                    self.start_thinking()
-                    reply_text = response.get("text", "")
-                    expression = response.get("expression", None)
-                    audio_data = response.get("audio", b"")
-                    audio_data = decode_from_base64(audio_data)
-
-                    if audio_data:
-                        self.start_mouth_move(audio_data)
-                        if expression and self.model:
-                            self.model.set_expression_by_cmd(expression)
-                        self.stop_thinking()
-                        self.response_signal.emit(reply_text)
-                        play_audio(audio_data)
-                    else:
-                        time.sleep(0.1)  # 短暂休眠，确保UI有时间更新
-                        self.stop_thinking()
-                        self.response_signal.emit(reply_text)
-
- 
-                    
+                self._process_stream_response(response_generator)
             except Exception as e:
-                print(f"Error in hear loop: {e}")
-            finally:
+                self.logger.error(f"Error in hear loop: {e}")
                 self.stop_thinking()
                 self.finish_reply()
 
@@ -71,6 +145,24 @@ class AgentBinder(QObject):
         thread = threading.Thread(target=_hear, args=(text,))
         thread.daemon = True
         thread.start()
+
+    def hear_picture(self, image_path: str):
+        def _hear(image_path:str):
+            self.start_thinking()
+            try:
+                # recv_callback return a generator for SSE
+                response_generator = self.hear_picture_callback(image_path)
+                self._process_stream_response(response_generator)
+            except Exception as e:
+                self.logger.error(f"Error in hear loop: {e}")
+                self.stop_thinking()
+                self.finish_reply()
+
+        # 使用线程避免阻塞 UI
+        thread = threading.Thread(target=_hear, args=(image_path,))
+        thread.daemon = True
+        thread.start()
+
 
     def load_history(self, count: int, end_index: int = -1):
         """

@@ -2,11 +2,11 @@
 import sys
 import os
 import json
-from PySide6.QtCore import Qt, QTimerEvent, QSize, QRect, QEvent, QTimer
+from PySide6.QtCore import Qt, QTimerEvent, QSize, QRect, QEvent, QTimer, QPoint
 from PySide6.QtGui import QMouseEvent, QPainter, QColor, QImage, QPixmap, QResizeEvent, QSurfaceFormat, QFont, QFontMetrics, QTextOption, QIcon
 from PySide6.QtWidgets import (QApplication, QWidget, QHBoxLayout, QVBoxLayout, 
                                QTextEdit, QLineEdit, QScrollArea, QLabel, 
-                               QSizePolicy, QFrame, QPushButton)
+                               QSizePolicy, QFrame, QPushButton, QFileDialog)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import *
 from typing import Dict, Any, List, Optional
@@ -136,6 +136,47 @@ class Live2DContainer(QWidget):
         else:
             painter.fillRect(self.rect(), Qt.GlobalColor.black)
 
+class ChatImageBubble(QWidget):
+    def __init__(self, image_path, is_user=False, parent=None):
+        super().__init__(parent)
+        self.is_user = is_user
+        self.image_path = image_path
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setContentsMargins(10, 5, 10, 5)
+        
+        self.image_label = QLabel()
+        self.image_label.setStyleSheet("background-color: transparent;")
+        
+        # Load and scale image
+        pixmap = QPixmap(self.image_path)
+        if not pixmap.isNull():
+            max_width = 250
+            max_height = 250
+            
+            w = pixmap.width()
+            h = pixmap.height()
+            
+            if w > max_width or h > max_height:
+                pixmap = pixmap.scaled(max_width, max_height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            
+            self.image_label.setPixmap(pixmap)
+        else:
+            self.image_label.setText("Image not found")
+        
+        # Alignment
+        if self.is_user:
+            layout.addStretch()
+            layout.addWidget(self.image_label)
+        else:
+            layout.addWidget(self.image_label)
+            layout.addStretch()
+            
+        self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+
 class ChatBubble(QWidget):
     def __init__(self, text, is_user=False, parent=None):
         super().__init__(parent)
@@ -220,6 +261,55 @@ class ChatBubble(QWidget):
         self.text_edit.setFixedHeight(final_height)
         self.setFixedHeight(final_height + 10)
 
+class CustomToolTip(QLabel):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowOpacity(0.8)
+        self.setStyleSheet("""
+            QLabel {
+                background-color: #BBBBBB;
+                color: #222222;
+                border: 1px solid #76797C;
+                border-radius: 4px;
+                padding: 4px;
+                font-size: 14px;
+            }
+        """)
+        
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.adjustSize()
+
+class HoverButton(QPushButton):
+    def __init__(self, tooltip_text="", parent=None):
+        super().__init__(parent)
+        self.tooltip_text = tooltip_text
+        self.tooltip_widget = None
+
+    def enterEvent(self, event):
+        if self.tooltip_text and self.isEnabled():
+            if not self.tooltip_widget:
+                self.tooltip_widget = CustomToolTip(self.tooltip_text, None) 
+            
+            # Position the tooltip
+            self.tooltip_widget.adjustSize()
+            global_pos = self.mapToGlobal(QPoint(0, 0))
+            x = global_pos.x()
+            y = global_pos.y() - self.tooltip_widget.height() - 5
+            
+            self.tooltip_widget.move(x, y)
+            self.tooltip_widget.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.tooltip_widget:
+            self.tooltip_widget.hide()
+            self.tooltip_widget.deleteLater()
+            self.tooltip_widget = None
+        super().leaveEvent(event)
+
 class ChatWidget(QWidget):
     def __init__(self, parent=None, config: Dict = None, agent_binder: AgentBinder = None):
         super().__init__(parent)
@@ -244,7 +334,18 @@ class ChatWidget(QWidget):
 
     def init_ui(self):
         # Right side background color
-        self.setStyleSheet("background-color: #DDDDDD;") # Light gray
+        self.setObjectName("ChatWidget")
+        self.setStyleSheet("""
+            QWidget#ChatWidget {
+                background-color: #DDDDDD;
+            }
+            QToolTip {
+                background-color: #66ccff;
+                color: #000000;
+                border: 1px solid #76797C;
+                padding: 1px;
+            }
+        """)
         self.setMinimumWidth(500)
         
         layout = QVBoxLayout()
@@ -306,6 +407,17 @@ class ChatWidget(QWidget):
         self.toolbar.setFixedHeight(30)
         self.toolbar_layout = QHBoxLayout(self.toolbar)
         self.toolbar_layout.setContentsMargins(10, 0, 10, 0)
+        
+        # Picture Button
+        self.picture_btn = HoverButton(tooltip_text="发送图片")
+        self.picture_btn.setIcon(QIcon("res/gui/picture_icon.png"))
+        self.picture_btn.setFixedSize(24, 24)
+        self.picture_btn.setStyleSheet("QPushButton { border: none; background-color: transparent; } QPushButton:hover { background-color: #E0E0E0; border-radius: 4px; }")
+
+        self.picture_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.picture_btn.clicked.connect(self.on_picture_clicked)
+        
+        self.toolbar_layout.addWidget(self.picture_btn)
         self.toolbar_layout.addStretch()
 
         # Horizontal Line 2
@@ -329,6 +441,7 @@ class ChatWidget(QWidget):
         self.send_button.clicked.connect(self.on_send_clicked)
         
         self.can_send = False
+        self.can_send_pic = True
         self.agent_free = True
         self.update_send_button_state()
         
@@ -384,6 +497,8 @@ class ChatWidget(QWidget):
     def on_agent_free_status_changed(self, is_free: bool):
         self.agent_free = is_free
         self.can_send = bool(self.input_box.toPlainText().strip()) and self.agent_free
+        self.can_send_pic = self.agent_free
+        self.update_send_pic_button_state()
         self.update_send_button_state()
 
     def update_send_button_state(self):
@@ -411,9 +526,45 @@ class ChatWidget(QWidget):
                     font-size: 14px;
                 }
             """)
+    
+    def update_send_pic_button_state(self):
+        if self.can_send_pic:
+            self.picture_btn.setEnabled(True)
+            self.picture_btn.setIcon(QIcon("res/gui/picture_icon.png"))
+        else:
+            self.picture_btn.setEnabled(False)
+            self.picture_btn.setIcon(QIcon("res/gui/picture_icon_un.png"))
 
     def on_send_clicked(self):
         self.handle_input()
+
+    def on_picture_clicked(self):
+        if not self.can_send_pic:
+            return
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select Image", 
+            "", 
+            "Images (*.png *.xpm *.jpg *.jpeg *.bmp *.svg)"
+        )
+        if file_path:
+            self.can_send_pic = False
+            self.can_send = False
+            self.update_send_button_state()
+            self.update_send_pic_button_state()
+            self.add_image_message(file_path, is_user=True)
+            self.agent.hear_picture(file_path)
+            
+
+    def add_image_message(self, image_path, is_user):
+        bubble = ChatImageBubble(image_path, is_user)
+        # Insert before the stretch item (which is the last item)
+        self.history_layout.insertWidget(self.history_layout.count() - 1, bubble)
+        
+        # Scroll to bottom
+        QApplication.processEvents() # Ensure layout updates
+        # Use singleShot to scroll after layout ensures the new height is calculated
+        QTimer.singleShot(50, lambda: self.scroll_area.verticalScrollBar().setValue(self.scroll_area.verticalScrollBar().maximum()))
 
     def eventFilter(self, obj, event):
         if obj == self.input_box:

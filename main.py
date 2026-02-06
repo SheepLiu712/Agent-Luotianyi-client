@@ -2,7 +2,7 @@ import sys
 import os
 
 # Determine execution path and set up environment
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     # Running in a bundle (likely PyInstaller)
     # For OneDir: sys.executable is in the bundle dir.
     # Resources are strictly relative to the executable location (or we expect them there).
@@ -32,31 +32,36 @@ if __name__ == "__main__":
     main_config_path = os.path.join(cwd, "config", "config.json")
     if not os.path.exists(main_config_path):
         print(f"Config not found at {main_config_path}")
-        
+
     config = load_config(main_config_path)
 
     app = ui_init()
-    
+
     # Login Flow
     network_client = NetworkClient(base_url=config.get("base_url"))
     login_dialog = LoginDialog(network_client)
-    
+
     # Try auto login
     if not login_dialog.try_auto_login():
         if login_dialog.exec() != QDialog.DialogCode.Accepted:
             live2d.dispose()
             sys.exit(0)
-        
+
     print(f"Logged in as {network_client.user_id}")
-    
-    binder = AgentBinder(hear_callback=network_client.network_hear_callback, history_callback=network_client.network_history_callback)
-    
+
+    binder = AgentBinder(
+        hear_callback=network_client.network_hear_callback,
+        hear_picture_callback=network_client.network_hear_picture_callback,
+        history_callback=network_client.network_history_callback,
+    )
+
     try:
         window = MainWindow(config["gui"], config["live2d"], binder)
         window.show()
     except Exception as e:
         print(f"Error creating MainWindow: {e}")
         import traceback
+
         traceback.print_exc()
         live2d.dispose()
         sys.exit(1)

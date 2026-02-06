@@ -7,7 +7,8 @@
                 "难过脸":"sad",
                 "温柔脸":"ease",
                 "喜欢脸":"like",
-                "卖萌":"moemoe"
+                "卖萌":"moemoe",
+                "唱歌":"sing"
     },
     "mouth_value_projection":{
         "normal":-1,

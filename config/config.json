@@ -1,5 +1,5 @@
 {
-    "base_url": "https://equilibrium-copyrighted-singer-smoke.trycloudflare.com",
+    "base_url": "http://127.0.0.1:60030",
     "live2d":{
         "model":{
             "model_version": "v3",

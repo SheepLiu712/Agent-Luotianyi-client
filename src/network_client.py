@@ -99,6 +99,7 @@ class NetworkClient:
                         if line:
                             decoded_line = line.decode('utf-8')
                             if decoded_line.startswith("data: "):
+                                self.logger.debug(f"Received line ")
                                 json_str = decoded_line[6:]
                                 try:
                                     data = json.loads(json_str)
@@ -137,3 +138,38 @@ class NetworkClient:
 
     def network_history_callback(self, count: int, end_index: int) -> Tuple[List[ConversationItem], int]:
         return self.get_history(count, end_index)
+
+    def network_hear_picture_callback(self, image_path: str):
+        if not self.user_id:
+            yield {"text": "Not logged in"}
+            return
+            
+        try:
+            with open(image_path, "rb") as f:
+                image_data = f.read()
+            files = {
+                "image": (os.path.basename(image_path), image_data, "application/octet-stream")
+            }
+            data = {
+                "username": self.user_id,
+                "token": self.message_token
+            }
+            # Use stream=True for SSE
+            with requests.post(f"{self.base_url}/picture_chat", data=data, files=files, stream=True) as resp:
+                if resp.status_code == 200:
+                    for line in resp.iter_lines():
+                        if line:
+                            decoded_line = line.decode('utf-8')
+                            if decoded_line.startswith("data: "):
+                                json_str = decoded_line[6:]
+                                try:
+                                    data = json.loads(json_str)
+                                    yield data
+                                except json.JSONDecodeError:
+                                    pass
+                else:
+                    self.logger.error(f"Server Error: {resp.status_code}")
+                    yield {"text": f"Error: {resp.status_code}"}
+        except Exception as e:
+            self.logger.error(f"Connection Error: {e}")
+            yield {"text": f"Connection Error: {e}"}

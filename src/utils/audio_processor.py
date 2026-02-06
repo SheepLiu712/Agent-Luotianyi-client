@@ -6,6 +6,7 @@ from .logger import get_logger
 import io
 import os
 from datetime import datetime
+import time
 
 logger = get_logger("audio_processor")
 
@@ -107,6 +108,142 @@ def save_to_wav(wav_data: bytes) -> str:
     return output_path
 
 HAS_WINSOUND = True
+
+class AudioPlayerStream:
+    """
+    流式音频播放器。
+    类似于 Web 端的 MSE (MediaSource Extensions)，支持 appendBuffer。
+    """
+    def __init__(self):
+        try:
+            import pyaudio
+            self.p = pyaudio.PyAudio()
+            self.has_pyaudio = True
+        except ImportError:
+            logger.error("PyAudio not installed. Streaming not supported properly.")
+            self.has_pyaudio = False
+            self.p = None
+            
+        self.stream = None
+        self.header_parsed = False
+        self.samplerate = 0
+        self.channels = 0
+        self.subtype = None # e.g. 'PCM_16'
+        self.buffer = io.BytesIO() # buffer for first chunk if needed
+
+    def append_buffer(self, data: bytes):
+        if not self.has_pyaudio:
+            return
+
+        if not self.header_parsed:
+            # Attempt to parse header from this chunk (assuming it's the first or start of stream)
+            # We use soundfile to detect format
+            try:
+                with sf.SoundFile(io.BytesIO(data)) as f:
+                    self.samplerate = f.samplerate
+                    self.channels = f.channels
+                    self.subtype = f.subtype
+                    initial_audio = f.read(dtype='int16') # Read as int16 for direct output if possible?
+
+                    format_pyaudio = self._get_pyaudio_format(self.subtype)
+                    
+                    self.stream = self.p.open(format=format_pyaudio,
+                                              channels=self.channels,
+                                              rate=self.samplerate,
+                                              output=True)
+                
+                    
+                    raw_bytes = initial_audio.tobytes()
+                    self.stream.write(raw_bytes)
+                    self.header_parsed = True
+            except Exception as e:
+                logger.error(f"Failed to parse header from first chunk: {e}")
+                pass
+        else:
+            self.stream.write(data)
+
+    def wait_until_empty(self):
+        # PyAudio 的 write 是阻塞的，但数据写入后到声音从扬声器出来有延迟 (Latency)。
+        # stop_stream() 会导致缓冲区数据被丢弃（截断尾音），所以不能用。
+        # 这里我们简单地 sleep 掉输出延迟的时间，确保让用户听到最后的声音。
+        if self.stream:
+            try:
+                # 获取输出延迟
+                latency = self.stream.get_output_latency()
+                # 稍微多等一点点缓冲，避免紧凑
+                time.sleep(max(latency, 0.05)) 
+            except Exception:
+                time.sleep(0.05)
+
+    def _get_pyaudio_format(self, subtype):
+        import pyaudio
+        if subtype == 'PCM_16':
+            return pyaudio.paInt16
+        elif subtype == 'PCM_24':
+            return pyaudio.paInt24
+        elif subtype == 'PCM_32':
+            return pyaudio.paInt32
+        elif subtype == 'FLOAT':
+            return pyaudio.paFloat32
+        return pyaudio.paInt16 # Default
+
+    def close(self):
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
+        # We generally don't terminate PyAudio instance every time if we want to reuse?
+        # But here we properly clean up.
+        if self.p:
+            self.p.terminate()
+
+def calculate_amplitude_from_chunk(data: bytes, samplerate: int, channels: int, subtype: str, fps: int = 60) -> np.ndarray:
+    """
+    Calculate amplitude for a raw PCM chunk
+    """
+    # Map subtype to dtype
+    dtype = 'int16'
+    if subtype == 'FLOAT':
+        dtype = 'float32'
+    elif subtype == 'PCM_32':
+        dtype = 'int32'
+    
+    try:
+        y = np.frombuffer(data, dtype=dtype)
+    except ValueError:
+        return np.array([0.0]) # Buffer size mismatch?
+        
+    if channels > 1:
+        # Reshape to (N, channels)
+        try:
+            y = y.reshape(-1, channels)
+            y = np.mean(y, axis=1)
+        except:
+             pass
+
+    # Normalize to -1..1 for calculation if it is int
+    if dtype == 'int16':
+        y = y / 32768.0
+    elif dtype == 'int32':
+        y = y / 2147483648.0
+        
+    # Same RMS logic as extract_audio_amplitude
+    hop_length = int(samplerate / fps)
+    if hop_length <= 0: return np.array([])
+    
+    pad_width = hop_length - (len(y) % hop_length)
+    if pad_width != hop_length:
+        y = np.pad(y, (0, pad_width), mode='constant')
+        
+    num_frames = len(y) // hop_length
+    frames = y.reshape(num_frames, hop_length)
+    rms = np.sqrt(np.mean(frames**2, axis=1))
+
+    if np.max(rms) > 0:
+        rms = rms / np.max(rms)
+    
+    # Simple boost
+    rms = np.clip(rms * 5 - 1, -1, 1) # simple scaling
+    return rms
 
 def play_audio(wav_data: bytes):
     """
