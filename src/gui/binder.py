@@ -1,12 +1,45 @@
 import time
 import threading
 import queue
+import multiprocessing
+import io
+import soundfile as sf
 from PySide6.QtCore import QObject, Signal
 from ..live2d import Live2dModel, live2d
 from ..utils.audio_processor import extract_audio_amplitude, decode_from_base64, play_audio, save_to_wav, AudioPlayerStream, calculate_amplitude_from_chunk
 from ..utils.logger import get_logger
 import numpy as np
 from typing import Dict, Callable
+
+def run_audio_player_worker(queue_in: multiprocessing.Queue, queue_out: multiprocessing.Queue):
+    """
+    Worker process for audio playback to avoid GIL contention.
+    """
+    player = AudioPlayerStream()
+    
+    while True:
+        try:
+            task = queue_in.get()
+            if task is None:
+                break
+            
+            cmd = task.get("cmd")
+            if cmd == "append":
+                data = task.get("data")
+                if data:
+                    player.append_buffer(data)
+            
+            elif cmd == "wait_finish":
+                player.wait_until_empty()
+                player.header_parsed = False # Reset for new stream
+                if queue_out:
+                    queue_out.put("finished")
+                    
+        except Exception as e:
+            # print(f"Audio worker error: {e}") 
+            pass
+    
+    player.close()
 
 class AgentBinder(QObject):
 
@@ -30,6 +63,16 @@ class AgentBinder(QObject):
         self.thinking_thread: threading.Thread | None = None
         self.thinking: bool = False
         self.model: Live2dModel | None = None
+
+        # Audio Process
+        self.audio_queue_in = multiprocessing.Queue()
+        self.audio_queue_out = multiprocessing.Queue()
+        self.audio_process = multiprocessing.Process(
+            target=run_audio_player_worker, 
+            args=(self.audio_queue_in, self.audio_queue_out),
+            daemon=True
+        )
+        self.audio_process.start()
 
     def _mouth_move_stream(self, init_value, mouth_queue: queue.Queue, stop_event: threading.Event, fps=60):
         while not stop_event.is_set():
@@ -57,7 +100,7 @@ class AgentBinder(QObject):
 
     def _process_stream_response(self, response_generator):
         """Unified streaming processor for hear and hear_picture"""
-        player = AudioPlayerStream()
+        # player running in separate process
         mouth_queue = queue.Queue()
         stop_mouth_event = threading.Event()
         
@@ -70,6 +113,9 @@ class AgentBinder(QObject):
         mouth_thread.start()
 
         is_first_audio = True
+        local_samplerate = 0
+        local_channels = 0
+        local_subtype = None
 
         try:
             for response in response_generator:
@@ -90,27 +136,39 @@ class AgentBinder(QObject):
                     # Feed Mouth
                     amps = []
                     if is_first_audio:
+                         try:
+                             with sf.SoundFile(io.BytesIO(audio_data)) as f:
+                                 local_samplerate = f.samplerate
+                                 local_channels = f.channels
+                                 local_subtype = f.subtype
+                         except Exception as e:
+                             self.logger.error(f"Header parse error: {e}")
+                             
                          amps = extract_audio_amplitude(audio_data, fps=60)
                          is_first_audio = False
                     else:
-                        if player.header_parsed:
+                        if local_samplerate > 0:
                             amps = calculate_amplitude_from_chunk(
                                 audio_data, 
-                                player.samplerate, 
-                                player.channels, 
-                                player.subtype,
+                                local_samplerate, 
+                                local_channels, 
+                                local_subtype,
                                 fps=60
                             )
 
                     # Feed Audio
                     if len(amps) > 0:
                         mouth_queue.put(amps)
-                    player.append_buffer(audio_data)
+                    
+                    self.audio_queue_in.put({"cmd": "append", "data": audio_data})
                     
                     if is_final_package:
-                        player.wait_until_empty()
-                        player.header_parsed = False  # Reset for next audio
+                        self.audio_queue_in.put({"cmd": "wait_finish"})
+                        # Wait for playing to finish
+                        _ = self.audio_queue_out.get()
+                        
                         is_first_audio = True
+                        local_samplerate = 0
                         self.start_thinking()
                 else:
                     # Allow UI updates for text-only frames
