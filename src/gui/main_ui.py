@@ -476,7 +476,6 @@ class ChatWidget(QWidget):
             item_type = item.type
             is_user = (item.source == "user")
             if item_type == "picture":
-                print("Loading image message in history:", item.content)
                 content_dict = json.loads(item.content)
                 image_path = content_dict.get("image_client_path")
                 bubble = ChatImageBubble(image_path, is_user)
