@@ -4,6 +4,7 @@ from .types import ConversationItem
 from .utils.logger import get_logger
 from .safety import credential, encrypt_pwd
 
+import datetime
 import os
 import json
 class NetworkClient:
@@ -147,12 +148,26 @@ class NetworkClient:
         try:
             with open(image_path, "rb") as f:
                 image_data = f.read()
+
+            # get new file path
+            cwd = os.getcwd()
+            postfix = os.path.splitext(image_path)[1]
+            new_file_path = os.path.join(cwd, "temp", "images", datetime.datetime.now().strftime("%Y%m%d%H%M%S")+postfix)
+            os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
+            with open(new_file_path, "wb") as f:
+                f.write(image_data)
+            image_type = "image/png"  # default type
+            if postfix.lower() in [".jpg", ".jpeg"]:
+                image_type = "image/jpeg"
+            elif postfix.lower() == ".gif":
+                image_type = "image/gif"
             files = {
-                "image": (os.path.basename(image_path), image_data, "application/octet-stream")
+                "image": (os.path.basename(new_file_path), image_data, image_type)
             }
             data = {
                 "username": self.user_id,
-                "token": self.message_token
+                "token": self.message_token,
+                "image_client_path": new_file_path # send the new file path to server   
             }
             # Use stream=True for SSE
             with requests.post(f"{self.base_url}/picture_chat", data=data, files=files, stream=True) as resp:

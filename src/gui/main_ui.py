@@ -473,8 +473,15 @@ class ChatWidget(QWidget):
         
         # Prepend messages
         for item in reversed(history_list):
+            item_type = item.type
             is_user = (item.source == "user")
-            bubble = ChatBubble(item.content, is_user)
+            if item_type == "picture":
+                print("Loading image message in history:", item.content)
+                content_dict = json.loads(item.content)
+                image_path = content_dict.get("image_client_path")
+                bubble = ChatImageBubble(image_path, is_user)
+            else:
+                bubble = ChatBubble(item.content, is_user)
             self.history_layout.insertWidget(0, bubble)
             
         # Restore scroll position

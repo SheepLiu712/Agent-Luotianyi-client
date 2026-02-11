@@ -284,41 +284,41 @@ class AgentBinder(QObject):
         '''
         self.free_signal.emit(True)
 
-    def start_mouth_move(self, wav: str | bytes, fps: int = 60):
-        """
-        开始口型同步
-        """
-        if not self.model:
-            self.logger.warning("No Live2D model loaded for mouth movement.")
-            return
+    # def start_mouth_move(self, wav: str | bytes, fps: int = 60):
+    #     """
+    #     开始口型同步
+    #     """
+    #     if not self.model:
+    #         self.logger.warning("No Live2D model loaded for mouth movement.")
+    #         return
 
-        # # 保存音频数据
-        # if isinstance(wav, str):
-        #     wav_path = wav
-        # else:
-        #     # 将字节数据保存到temp/tts_output/目录下的临时文件
-        #     wav_path = save_to_wav(wav)
-        init_value = self.model.GetParameterValue("ParamMouthOpenY")
-        amp = np.clip(extract_audio_amplitude(wav=wav, fps=fps) * 6 - 1, -1.0, 1.0)
+    #     # # 保存音频数据
+    #     # if isinstance(wav, str):
+    #     #     wav_path = wav
+    #     # else:
+    #     #     # 将字节数据保存到temp/tts_output/目录下的临时文件
+    #     #     wav_path = save_to_wav(wav)
+    #     init_value = self.model.GetParameterValue("ParamMouthOpenY")
+    #     amp = np.clip(extract_audio_amplitude(wav=wav, fps=fps) * 6 - 1, -1.0, 1.0)
 
-        # 开始口型同步线程
-        mouth_move_thread = threading.Thread(target=self._mouth_move, args=(init_value, amp, fps), daemon=True)
-        mouth_move_thread.start()
+    #     # 开始口型同步线程
+    #     mouth_move_thread = threading.Thread(target=self._mouth_move, args=(init_value, amp, fps), daemon=True)
+    #     mouth_move_thread.start()
 
-    def _mouth_move(self, init_value: float, amp: np.ndarray, fps: int = 60):
-        if not self.model:
-            return
+    # def _mouth_move(self, init_value: float, amp: np.ndarray, fps: int = 60):
+    #     if not self.model:
+    #         return
         
-        st_time = time.time()
-        while True:
+    #     st_time = time.time()
+    #     while True:
 
-            elapsed = time.time() - st_time
-            frame_index = int(elapsed * fps)
-            if frame_index >= len(amp):
-                break
-            weight = np.clip(frame_index / len(amp) - 0.95, 0, 1) * 20
-            target_value = amp[frame_index] * (1-weight) + init_value * weight  # 最后一段平滑回到初始值
-            self.model.SetParameterValue("ParamMouthOpenY", target_value, weight=0.3)
-            time.sleep(1 / fps)
+    #         elapsed = time.time() - st_time
+    #         frame_index = int(elapsed * fps)
+    #         if frame_index >= len(amp):
+    #             break
+    #         weight = np.clip(frame_index / len(amp) - 0.95, 0, 1) * 20
+    #         target_value = amp[frame_index] * (1-weight) + init_value * weight  # 最后一段平滑回到初始值
+    #         self.model.SetParameterValue("ParamMouthOpenY", target_value, weight=0.3)
+    #         time.sleep(1 / fps)
 
-        self.model.SetParameterValue("ParamMouthOpenY", init_value, weight=1)
+    #     self.model.SetParameterValue("ParamMouthOpenY", init_value, weight=1)
