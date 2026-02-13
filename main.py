@@ -1,5 +1,6 @@
 import sys
 import os
+import multiprocessing
 
 # Determine execution path and set up environment
 if getattr(sys, "frozen", False):
@@ -29,6 +30,8 @@ from src.network_client import NetworkClient
 from src.gui.login_dialog import LoginDialog
 
 if __name__ == "__main__":
+    # Windows multiprocessing support for PyInstaller
+    multiprocessing.freeze_support()
     main_config_path = os.path.join(cwd, "config", "config.json")
     if not os.path.exists(main_config_path):
         print(f"Config not found at {main_config_path}")

@@ -10,7 +10,7 @@ echo "Script started at: $(date)"
 echo "==============================="
 
 # Activate the Conda environment
-echo "Activating Conda environment 'lty'..."
+echo "Activating Conda environment 'lty_c'..."
 source D:/Anaconda/etc/profile.d/conda.sh  # Adjust the path if necessary
 conda activate lty_c
 
@@ -53,16 +53,55 @@ fi
 
 # Copy required files and folders to the target folder
 echo "Copying files and folders to '$TARGET_FOLDER'..."
+
+echo "  Copying _internal folder..."
 cp -r "$DIST_FOLDER/_internal" "$TARGET_FOLDER/"
+if [ $? -eq 0 ]; then
+    echo "  ✓ _internal copied successfully"
+else
+    echo "  ✗ Failed to copy _internal"
+fi
+
+echo "  Copying executable..."
 cp "$DIST_FOLDER/Chat with Luotianyi.exe" "$TARGET_FOLDER/"
+if [ $? -eq 0 ]; then
+    echo "  ✓ Executable copied successfully"
+else
+    echo "  ✗ Failed to copy executable"
+fi
 
 # Copy config and res folders if they exist
+echo "  Checking for config folder..."
 if [ -d "config" ]; then
-    cp -r "config" "$TARGET_FOLDER/"
-fi  
-if [ -d "res" ]; then
-    cp -r "res" "$TARGET_FOLDER/"
+    echo "  Found config folder, copying..."
+    cp -r "config" "$DIST_FOLDER/"
+    if [ $? -eq 0 ]; then
+        echo "  ✓ config folder copied successfully"
+    else
+        echo "  ✗ Failed to copy config folder"
+    fi
+else
+    echo "  ✗ config folder not found in current directory"
 fi
+
+echo "  Checking for res folder..."
+if [ -d "res" ]; then
+    echo "  Found res folder, copying..."
+    cp -r "res" "$DIST_FOLDER/"
+    if [ $? -eq 0 ]; then
+        echo "  ✓ res folder copied successfully"
+    else
+        echo "  ✗ Failed to copy res folder"
+    fi
+else
+    echo "  ✗ res folder not found in current directory"
+fi
+
+if [ id "temp"]; then
+    cp -r "temp" "$DIST_FOLDER/"
+fi
+
+echo "Copy operations completed."
 
 # Log completion time
 echo "==============================="

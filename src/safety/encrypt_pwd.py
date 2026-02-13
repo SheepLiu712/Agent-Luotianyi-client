@@ -11,7 +11,7 @@ def get_public_key(base_url="http://127.0.0.1:8000") -> serialization.PublicForm
     if public_key:
         return public_key
     try:
-        resp = requests.get(f"{base_url}/auth/public_key")
+        resp = requests.get(f"{base_url}/auth/public_key", verify=False)
         if resp.status_code == 200:
             pem = resp.json().get("public_key")
             public_key = serialization.load_pem_public_key(pem.encode('utf-8'))

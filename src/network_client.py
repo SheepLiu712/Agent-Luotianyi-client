@@ -31,7 +31,7 @@ class NetworkClient:
                 "username": username, 
                 "password": encrypted_password,
                 "request_token": request_token
-            })
+            },verify=False)
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
@@ -54,7 +54,7 @@ class NetworkClient:
 
     def auto_login(self, username: str, token: str) -> bool:
         try:
-            resp = requests.post(f"{self.base_url}/auth/auto_login", json={"username": username, "token": token})
+            resp = requests.post(f"{self.base_url}/auth/auto_login", json={"username": username, "token": token}, verify=False)
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
@@ -74,7 +74,7 @@ class NetworkClient:
                 return False, "Failed to encrypt password. Check server connection."
 
             resp = requests.post(f"{self.base_url}/auth/register", 
-                                 json={"username": username, "password": encrypted_password, "invite_code": invite_code})
+                                 json={"username": username, "password": encrypted_password, "invite_code": invite_code}, verify=False)
             if resp.status_code == 200:
                 return True, "Registration Successful"
             else:
@@ -94,7 +94,7 @@ class NetworkClient:
         try:
             payload = {"text": text, "username": self.user_id, "token": self.message_token}
             # Use stream=True for SSE
-            with requests.post(f"{self.base_url}/chat", json=payload, stream=True) as resp:
+            with requests.post(f"{self.base_url}/chat", json=payload, stream=True, verify=False) as resp:
                 if resp.status_code == 200:
                     for line in resp.iter_lines():
                         if line:
@@ -120,7 +120,7 @@ class NetworkClient:
             
         try:
             params = {"username": self.user_id, "token": self.message_token, "count": count, "end_index": end_index}
-            resp = requests.get(f"{self.base_url}/history", params=params)
+            resp = requests.get(f"{self.base_url}/history", params=params, verify=False)
             if resp.status_code == 200:
                 data = resp.json()
                 # Ensure we handle the response correctly. The provided attachment showed ConversationItem mapping
@@ -170,7 +170,7 @@ class NetworkClient:
                 "image_client_path": new_file_path # send the new file path to server   
             }
             # Use stream=True for SSE
-            with requests.post(f"{self.base_url}/picture_chat", data=data, files=files, stream=True) as resp:
+            with requests.post(f"{self.base_url}/picture_chat", data=data, files=files, stream=True, verify=False) as resp:
                 if resp.status_code == 200:
                     for line in resp.iter_lines():
                         if line:

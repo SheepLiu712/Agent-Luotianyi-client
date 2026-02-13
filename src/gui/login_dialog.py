@@ -46,7 +46,6 @@ class LoginDialog(QDialog):
                 self.logger.info("Attempting auto login...")
                 if self.network_client.auto_login(self.l_username.text(), self.saved_token):
                     self.logger.info("Auto login successful")
-                    self.accept()
                     return True
                 else:
                     self.logger.info("Auto login failed")
