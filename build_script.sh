@@ -97,8 +97,15 @@ else
     echo "  ✗ res folder not found in current directory"
 fi
 
+echo "  Checking for temp folder..."
 if [ id "temp"]; then
+    echo "  Found temp folder, copying..."
     cp -r "temp" "$DIST_FOLDER/"
+    if [ $? -eq 0 ]; then
+        echo "  ✓ temp folder copied successfully"
+    else
+        echo "  ✗ Failed to copy temp folder"
+    fi
 fi
 
 echo "Copy operations completed."
