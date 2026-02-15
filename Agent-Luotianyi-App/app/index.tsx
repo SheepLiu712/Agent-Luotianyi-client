@@ -1,14 +1,37 @@
 import {
-  Text, View, TextInput, TouchableOpacity, Image, StyleSheet, useWindowDimensions, Keyboard
+  View, TextInput, TouchableOpacity, Image, StyleSheet, useWindowDimensions, Keyboard, FlatList
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { WebView } from 'react-native-webview';
+import Constants from 'expo-constants';
+import { MessageItem } from '../components/ChatBubbles';
+import { useChatLogic } from '../hooks/useChatLogic';
 
 export default function Index() {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const live2dHeight = screenHeight * 0.4;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const webviewRef = useRef<WebView>(null);
+
+
+  // 构建 live2d.html 的 URL
+  // Expo 开发模式下，public 目录的文件可以通过开发服务器直接访问
+  const debuggerHost = Constants.expoConfig?.hostUri || 'localhost:8081';
+  const live2dUrl = `http://${debuggerHost}/live2d/live2d.html`;
+
+  // 使用自定义 Hook 管理聊天逻辑
+  const {
+    inputText,
+    messages,
+    flatListRef,
+    canSend,
+    canSendImage,
+    setInputText,
+    handleSendText,
+    handleSendImage,
+  } = useChatLogic();
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardDidShow', (e) => {
@@ -24,6 +47,7 @@ export default function Index() {
     };
   }, []);
 
+
   return (
     <View style={{ flex: 1, backgroundColor: 'white' }}>
 
@@ -32,15 +56,60 @@ export default function Index() {
 
       {/* 【固定层：Live2D 区域】- 绝对定位，不参与 flex 布局，永远固定在顶部 */}
       <View style={[styles.live2dFixedLayer, { top: insets.top, height: live2dHeight }]}>
-        <Text>这里是天依，我纹丝不动</Text>
+        {/* 背景图 */}
+        <Image
+          source={require('../assets/live2d/backgrounds/bg2.jpg')}
+          style={[
+            StyleSheet.absoluteFillObject,
+            styles.background_image,
+          ]}
+          resizeMode="cover"
+        />
+        <WebView
+          ref={webviewRef}
+          source={{ uri: live2dUrl }}
+          style={styles.webview}
+          scrollEnabled={false}
+          bounces={false}
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          onMessage={(event) => {
+            // 接收来自 WebView 的消息
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              console.log('Live2D message:', data);
+            } catch (e) {
+              console.error('Parse message error:', e);
+            }
+          }}
+          onError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            console.error('WebView error:', nativeEvent);
+          }}
+          onLoadEnd={() => {
+            console.log('Live2D WebView loaded');
+          }}
+        />
       </View>
 
       {/* 【可压缩区域：聊天历史 + 输入框】- 使用 flex 布局，会被键盘压缩 */}
       <View style={{ flex: 1, marginTop: live2dHeight, marginBottom: keyboardHeight }}>
-        {/* 聊天历史区域 - 会被键盘压缩 */}
-        <View style={{ flex: 1, backgroundColor: 'white', borderTopWidth: 1, borderColor: '#eee' }}>
-          <Text style={{ padding: 10 }}>聊天历史区域</Text>
-          <Text style={{ padding: 10 }}>键盘弹起时，我会被压缩变短</Text>
+        {/* 聊天历史区域 - 使用 FlatList 显示消息列表 */}
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={({ item }) => <MessageItem message={item} />}
+            keyExtractor={(item) => item.id}
+            style={styles.chatList}
+            contentContainerStyle={styles.chatListContent}
+            showsVerticalScrollIndicator={true}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onScrollBeginDrag={Keyboard.dismiss} // 滚动时自动收起键盘
+          />
         </View>
 
         {/* 输入框区域 - 跟随键盘 */}
@@ -49,18 +118,31 @@ export default function Index() {
             style={styles.inputField}
             placeholder="给天依发消息..."
             placeholderTextColor="#999"
+            value={inputText}
+            onChangeText={setInputText}
+            multiline={false}
           />
-          
-          <TouchableOpacity style={styles.iconButton} onPress={() => console.log('发送图片')}>
+
+          <TouchableOpacity style={styles.iconButton} onPress={handleSendImage} disabled={!canSendImage}>
             <Image
-              source={require('../assets/images/picture_icon_activate.png')}
+              source={canSendImage ?
+                require('../assets/images/image_button_activate.png')
+                : require('../assets/images/image_button_un.png')
+              }
               style={styles.iconImage}
             />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.iconButton} onPress={() => console.log('发送文本')}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={handleSendText}
+            disabled={!canSend}
+          >
             <Image
-              source={require('../assets/images/send_button_activate.png')}
+              source={canSend
+                ? require('../assets/images/send_button_activate.png')
+                : require('../assets/images/send_button_un.png')
+              }
               style={styles.iconImage}
             />
           </TouchableOpacity>
@@ -72,14 +154,34 @@ export default function Index() {
 
 
 const styles = StyleSheet.create({
+  background_image: {
+    width: '100%',
+    height: '100%',
+    transform: [
+      { scale: 1.1 },
+      { translateX: 0 },
+      { translateY: 0 }
+    ]
+  },
   live2dFixedLayer: {
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: 'lightblue',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10, // 最高层级，永远显示在最上面
+    backgroundColor: 'transparent',
+    zIndex: 10,
+    overflow: 'hidden',
+  },
+  webview: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  chatList: {
+    flex: 1,
+    backgroundColor: '#E8E8E8', // 浅灰色背景，区分对话框
+  },
+  chatListContent: {
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   inputContainer: {
     flexDirection: 'row',

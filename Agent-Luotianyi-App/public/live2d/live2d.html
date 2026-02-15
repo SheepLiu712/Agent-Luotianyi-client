@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Live2D Tianyi</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    #canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <!-- 1. PixiJS -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.x/dist/pixi.min.js"></script>
+  <!-- 2. Live2D Cubism Core (Cubism 3/4) -->
+  <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+  <!-- 3. pixi-live2d-display (仅 Cubism4) -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    let app;
+    let model;
+    let dragging = false;
+    let lastPosition = { x: 0, y: 0 };
+
+    window.onload = async function () {
+      try {
+        console.log('===== Live2D 初始化开始 =====');
+        console.log('PixiJS version:', PIXI.VERSION);
+        console.log('PIXI.live2d:', PIXI.live2d);
+        console.log('Live2DCubismCore:', typeof Live2DCubismCore);
+
+        // 获取 Live2DModel
+        const Live2DModel = PIXI.live2d.Live2DModel;
+        if (!Live2DModel) {
+          throw new Error('Live2DModel 未找到');
+        }
+        console.log('Live2DModel 加载成功');
+
+        // 创建 PIXI 应用
+        app = new PIXI.Application({
+          view: document.getElementById('canvas'),
+          width: window.innerWidth,
+          height: window.innerHeight,
+          backgroundAlpha: 0,
+          resolution: window.devicePixelRatio || 1,
+          autoDensity: true,
+          antialias: true,
+        });
+        console.log('PIXI 应用创建成功, 尺寸:', window.innerWidth, 'x', window.innerHeight);
+
+        // 加载模型
+        console.log('开始加载模型...');
+        const modelPath = './models/luo/model.model3.json';
+        console.log('模型路径:', modelPath);
+
+        model = await Live2DModel.from(modelPath, {
+          autoInteract: false,
+          autoUpdate: true
+        });
+        console.log('模型加载成功, 原始尺寸:', model.width, 'x', model.height);
+
+        // 设置模型位置和缩放
+        model.anchor.set(0.5, 0.5);
+        model.x = window.innerWidth / 2;
+        model.y = window.innerHeight / 2;
+
+        const scale = Math.min(
+          window.innerWidth / model.width,
+          window.innerHeight / model.height
+        ) * 1.2;
+        model.scale.set(scale);
+        console.log('模型缩放:', scale, '位置:', model.x, model.y);
+
+        // 添加到舞台
+        app.stage.addChild(model);
+        model.interactive = true;
+        model.buttonMode = true;
+
+        // 设置交互
+        setupInteraction(Live2DModel);
+
+        // 窗口大小改变时调整
+        window.addEventListener('resize', function () {
+          app.renderer.resize(window.innerWidth, window.innerHeight);
+          if (model) {
+            model.x = window.innerWidth / 2;
+            model.y = window.innerHeight / 2;
+            var newScale = Math.min(
+              window.innerWidth / model.width,
+              window.innerHeight / model.height
+            ) * 1.2;
+            model.scale.set(newScale);
+          }
+        });
+
+        // 通知 React Native
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'modelLoaded',
+            success: true
+          }));
+        }
+
+        console.log('===== Live2D 初始化完成 =====');
+
+      } catch (error) {
+        console.error('Live2D 初始化失败:', error);
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'modelLoaded',
+            success: false,
+            error: error.message
+          }));
+        }
+      }
+    };
+
+    function setupInteraction() {
+      if (!model) return;
+
+      // 点击模型
+      model.on('pointerdown', function (event) {
+        var point = event.data.global;
+        dragging = true;
+        lastPosition = { x: point.x, y: point.y };
+
+        // 播放随机动作
+        model.motion('Idle');
+      });
+
+      // 鼠标/触摸移动 - 眼睛跟随
+      app.stage.on('pointermove', function (event) {
+        var point = event.data.global;
+
+        if (dragging && model) {
+          var dx = point.x - lastPosition.x;
+          var dy = point.y - lastPosition.y;
+          model.x += dx;
+          model.y += dy;
+          lastPosition = { x: point.x, y: point.y };
+        }
+      });
+
+      // 释放
+      app.stage.on('pointerup', function () {
+        dragging = false;
+      });
+      app.stage.on('pointerupoutside', function () {
+        dragging = false;
+      });
+
+      app.stage.interactive = true;
+    }
+
+    // ===== 暴露给 React Native 的接口 =====
+
+    window.setExpression = function (expressionId) {
+      if (model) {
+        model.expression(expressionId);
+        console.log('设置表情:', expressionId);
+      }
+    };
+
+    window.playMotion = function (group, no) {
+      if (model) {
+        model.motion(group, no);
+        console.log('播放动作:', group, no);
+      }
+    };
+
+    window.setScale = function (scale) {
+      if (model) {
+        model.scale.set(scale);
+      }
+    };
+  </script>
+</body>
+</html>
