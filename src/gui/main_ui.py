@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimerEvent, QSize, QRect, QEvent, QTimer, QPoint
 from PySide6.QtGui import QMouseEvent, QPainter, QColor, QImage, QPixmap, QResizeEvent, QSurfaceFormat, QFont, QFontMetrics, QTextOption, QIcon
 from PySide6.QtWidgets import (QApplication, QWidget, QHBoxLayout, QVBoxLayout, 
                                QTextEdit, QLineEdit, QScrollArea, QLabel, 
-                               QSizePolicy, QFrame, QPushButton, QFileDialog)
+                               QSizePolicy, QFrame, QPushButton, QFileDialog, QMenu)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import *
 from typing import Dict, Any, List, Optional
@@ -177,6 +177,30 @@ class ChatImageBubble(QWidget):
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
 
+class CustomTextEdit(QTextEdit):
+    def contextMenuEvent(self, event):
+        # 创建自定义菜单
+        menu = QMenu(self)
+        
+        # 设置菜单样式（也可以在全局设置）
+        menu.setStyleSheet("""
+            QMenu { background-color: white; border: 1px solid #88EDFF; }
+            QMenu::item { color: black; padding: 5px 20px; }
+            QMenu::item:selected { background-color: #88EDFF; }
+        """)
+
+        # 添加自定义行为
+        copy_action = menu.addAction("复制 (Copy)")
+        select_all_action = menu.addAction("全选 (Select All)")
+        
+        # 执行菜单并获取用户点击的动作
+        action = menu.exec(event.globalPos())
+        
+        if action == copy_action:
+            self.copy()
+        elif action == select_all_action:
+            self.selectAll()
+
 class ChatBubble(QWidget):
     def __init__(self, text, is_user=False, parent=None):
         super().__init__(parent)
@@ -188,7 +212,7 @@ class ChatBubble(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 5, 10, 5)
         
-        self.text_edit = QTextEdit()
+        self.text_edit = CustomTextEdit()
         self.text_edit.setReadOnly(True)
         self.text_edit.setText(self.text)
         self.text_edit.setFrameShape(QFrame.Shape.NoFrame)
@@ -457,6 +481,7 @@ class ChatWidget(QWidget):
     def on_scroll_value_changed(self, value):
         if value == 0 and not self.is_loading_history and self.current_history_index > 0:
             self.is_loading_history = True
+            print("Loading history...")
             self.agent.load_history(self.load_history_num, self.current_history_index)
 
     def on_history_loaded(self, history_list: List[ConversationItem], start_index):
@@ -475,9 +500,8 @@ class ChatWidget(QWidget):
         for item in reversed(history_list):
             item_type = item.type
             is_user = (item.source == "user")
-            if item_type == "picture":
-                content_dict = json.loads(item.content)
-                image_path = content_dict.get("image_client_path")
+            if item_type == "image":
+                image_path = item.content
                 bubble = ChatImageBubble(image_path, is_user)
             else:
                 bubble = ChatBubble(item.content, is_user)

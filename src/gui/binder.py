@@ -4,7 +4,7 @@ import queue
 import multiprocessing
 import io
 import soundfile as sf
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
 from ..live2d import Live2dModel, live2d
 from ..utils.audio_processor import extract_audio_amplitude, decode_from_base64, play_audio, save_to_wav, AudioPlayerStream, calculate_amplitude_from_chunk
 from ..utils.logger import get_logger
@@ -62,6 +62,7 @@ class AgentBinder(QObject):
     
         self.thinking_thread: threading.Thread | None = None
         self.thinking: bool = False
+        self.waiting_package = True
         self.model: Live2dModel | None = None
 
         # Audio Process
@@ -118,13 +119,13 @@ class AgentBinder(QObject):
         local_subtype = None
 
         try:
+            self.waiting_package = True
             for response in response_generator:
                 reply_text = response.get("text", "")
                 expression = response.get("expression", None)
                 audio_data = decode_from_base64(response.get("audio", b""))
                 is_final_package = response.get("is_final_package", False)
-                print(is_final_package)
-                
+                self.waiting_package = False
                 if reply_text:
                      self.stop_thinking()
                      self.response_signal.emit(reply_text)
@@ -169,12 +170,14 @@ class AgentBinder(QObject):
                         
                         is_first_audio = True
                         local_samplerate = 0
-                        self.start_thinking()
+                        
+                        QTimer.singleShot(100, self.start_thinking)  # 短暂延迟后恢复思考状态，允许UI更新
                 else:
                     # Allow UI updates for text-only frames
                     time.sleep(0.01)
-                    self.start_thinking()
-                print("Processed a response chunk.")
+                    QTimer.singleShot(100, self.start_thinking)
+                self.waiting_package = True    
+            self.waiting_package = False
 
         except Exception as e:
             self.logger.error(f"Stream Error: {e}")
@@ -245,10 +248,11 @@ class AgentBinder(QObject):
         self.response_signal.emit(" ")
         while self.thinking:
             for i in range(3):
-                if not self.thinking:
-                    break
+                for _ in range(10):  # 每个点持续0.5秒
+                    if not self.thinking:
+                        break
+                    time.sleep(0.05)
                 self.update_signal.emit("." * (i + 1))
-                time.sleep(0.1)
 
         self.delete_signal.emit()
 
@@ -256,7 +260,7 @@ class AgentBinder(QObject):
         """
         开始思考，显示动态气泡
         """
-        if self.thinking:
+        if self.thinking or self.waiting_package == False: # 等到包了，不用思考
             return  # 已经在思考中
         if self.thinking_thread and self.thinking_thread.is_alive():
             return  # 已经在思考中

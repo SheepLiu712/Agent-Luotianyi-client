@@ -31,7 +31,7 @@ class NetworkClient:
                 "username": username, 
                 "password": encrypted_password,
                 "request_token": request_token
-            },verify=False)
+            },verify=True)
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
@@ -54,7 +54,7 @@ class NetworkClient:
 
     def auto_login(self, username: str, token: str) -> bool:
         try:
-            resp = requests.post(f"{self.base_url}/auth/auto_login", json={"username": username, "token": token}, verify=False)
+            resp = requests.post(f"{self.base_url}/auth/auto_login", json={"username": username, "token": token}, verify=True)
             if resp.status_code == 200:
                 data = resp.json()
                 self.user_id = data.get("user_id")
@@ -74,7 +74,7 @@ class NetworkClient:
                 return False, "Failed to encrypt password. Check server connection."
 
             resp = requests.post(f"{self.base_url}/auth/register", 
-                                 json={"username": username, "password": encrypted_password, "invite_code": invite_code}, verify=False)
+                                 json={"username": username, "password": encrypted_password, "invite_code": invite_code}, verify=True)
             if resp.status_code == 200:
                 return True, "Registration Successful"
             else:
@@ -94,7 +94,7 @@ class NetworkClient:
         try:
             payload = {"text": text, "username": self.user_id, "token": self.message_token}
             # Use stream=True for SSE
-            with requests.post(f"{self.base_url}/chat", json=payload, stream=True, verify=False) as resp:
+            with requests.post(f"{self.base_url}/chat", json=payload, stream=True, verify=True) as resp:
                 if resp.status_code == 200:
                     for line in resp.iter_lines():
                         if line:
@@ -120,19 +120,65 @@ class NetworkClient:
             
         try:
             params = {"username": self.user_id, "token": self.message_token, "count": count, "end_index": end_index}
-            resp = requests.get(f"{self.base_url}/history", params=params, verify=False)
+            resp = requests.get(f"{self.base_url}/history", params=params, verify=True)
             if resp.status_code == 200:
                 data = resp.json()
                 # Ensure we handle the response correctly. The provided attachment showed ConversationItem mapping
                 if "history" in data:
-                     history_items = [ConversationItem(**item) for item in data.get("history", [])]
-                     return history_items, data.get("start_index", 0)
+                    history = data["history"]
+                    history_items = [ConversationItem(**item) for item in data.get("history", [])]
+                    history_items = self.clean_history(history_items)
+                    return history_items, data.get("start_index", 0)
                 else:
                     return [], 0
 
         except Exception as e:
             self.logger.error(f"History Error: {e}")
         return [], 0
+    
+    def clean_history(self, history_items: List[ConversationItem]) -> List[ConversationItem]:
+        # 检查历史记录中的图片项，如果图片不存在则向服务器请求重新生成图片
+        modified_history = []
+        for item in history_items:
+            if item.type != 'image':
+                modified_history.append(item)
+                continue
+            if os.path.exists(item.content):
+                modified_history.append(item)
+                continue
+            # 图片不存在，向服务器请求重新生成图片
+            try:
+                payload = {"username": self.user_id, "token": self.message_token, "uuid": item.id}
+                resp = requests.post(f"{self.base_url}/get_image", json=payload, stream=True, verify=True)
+                # StreamingResponse(iter([image_data]), media_type=content_type) content_type = "image/png" / "image/jpeg"
+                if resp.status_code == 200:
+                    content_type = resp.headers.get("Content-Type", "image/png")
+                    postfix = ".png"
+                    if content_type == "image/jpeg":
+                        postfix = ".jpg"
+                    elif content_type == "image/gif":
+                        postfix = ".gif"
+                    # get new file path
+                    cwd = os.getcwd()
+                    new_file_path = os.path.join(cwd, "temp", "images", item.id + postfix)
+                    os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
+                    with open(new_file_path, "wb") as f:
+                        f.write(resp.content)
+                    item.content = new_file_path
+                    modified_history.append(item)
+                else:
+                    self.logger.error(f"Failed to retrieve image for history item {item.id}, status code: {resp.status_code}")
+                    modified_history.append(item)  # 图片无法获取，保留原路径，可能会显示为损坏图片
+                    continue
+                
+                payload.update({"image_client_path": item.content})
+                resp = requests.post(f"{self.base_url}/update_image_client_path", json=payload, verify=True)
+                if resp.status_code != 200:
+                    self.logger.error(f"Failed to update image path for history item {item.id}, status code: {resp.status_code}")
+            except Exception as e:
+                self.logger.error(f"Failed to retrieve image for history item {item.id}: {e}")
+                
+        return modified_history
 
     def network_hear_callback(self, text: str):
         return self.send_chat(text)
@@ -170,7 +216,7 @@ class NetworkClient:
                 "image_client_path": new_file_path # send the new file path to server   
             }
             # Use stream=True for SSE
-            with requests.post(f"{self.base_url}/picture_chat", data=data, files=files, stream=True, verify=False) as resp:
+            with requests.post(f"{self.base_url}/picture_chat", data=data, files=files, stream=True, verify=True) as resp:
                 if resp.status_code == 200:
                     for line in resp.iter_lines():
                         if line:
