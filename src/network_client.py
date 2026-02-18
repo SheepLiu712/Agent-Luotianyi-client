@@ -148,7 +148,7 @@ class NetworkClient:
                 continue
             # 图片不存在，向服务器请求重新生成图片
             try:
-                payload = {"username": self.user_id, "token": self.message_token, "uuid": item.id}
+                payload = {"username": self.user_id, "token": self.message_token, "uuid": item.uuid}
                 resp = requests.post(f"{self.base_url}/get_image", json=payload, stream=True, verify=True)
                 # StreamingResponse(iter([image_data]), media_type=content_type) content_type = "image/png" / "image/jpeg"
                 if resp.status_code == 200:
@@ -160,23 +160,23 @@ class NetworkClient:
                         postfix = ".gif"
                     # get new file path
                     cwd = os.getcwd()
-                    new_file_path = os.path.join(cwd, "temp", "images", item.id + postfix)
+                    new_file_path = os.path.join(cwd, "temp", "images", item.uuid + postfix)
                     os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
                     with open(new_file_path, "wb") as f:
                         f.write(resp.content)
                     item.content = new_file_path
                     modified_history.append(item)
                 else:
-                    self.logger.error(f"Failed to retrieve image for history item {item.id}, status code: {resp.status_code}")
+                    self.logger.error(f"Failed to retrieve image for history item {item.uuid}, status code: {resp.status_code}")
                     modified_history.append(item)  # 图片无法获取，保留原路径，可能会显示为损坏图片
                     continue
                 
                 payload.update({"image_client_path": item.content})
                 resp = requests.post(f"{self.base_url}/update_image_client_path", json=payload, verify=True)
                 if resp.status_code != 200:
-                    self.logger.error(f"Failed to update image path for history item {item.id}, status code: {resp.status_code}")
+                    self.logger.error(f"Failed to update image path for history item {item.uuid}, status code: {resp.status_code}")
             except Exception as e:
-                self.logger.error(f"Failed to retrieve image for history item {item.id}: {e}")
+                self.logger.error(f"Failed to retrieve image for history item {item.uuid}: {e}")
                 
         return modified_history
 

@@ -7,7 +7,7 @@ class ConversationItem:
     source: str
     type: str
     content: str
-    id: str = None
+    uuid: str = None
     def __repr__(self) -> str:
         elapsed_time: str = self._timestamp_to_elapsed_time()
         return f"[{elapsed_time}] {self.source} ({self.type}): {self.content}"

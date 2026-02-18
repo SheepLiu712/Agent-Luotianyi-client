@@ -513,12 +513,12 @@ class ChatWidget(QWidget):
         
         if self.first_load:
             # Use QTimer to ensure layout is updated and scrollbar max is correct
-            QTimer.singleShot(50, lambda: scrollbar.setValue(scrollbar.maximum()))
+            QTimer.singleShot(5, lambda: scrollbar.setValue(scrollbar.maximum()))
             self.first_load = False
         elif old_max != new_max:
-             QTimer.singleShot(50, lambda: scrollbar.setValue(old_value + scrollbar.maximum() - old_max))
+             QTimer.singleShot(5, lambda: scrollbar.setValue(old_value + scrollbar.maximum() - old_max))
         else:
-            QTimer.singleShot(50, lambda: scrollbar.setValue(scrollbar.maximum() - old_max))
+            QTimer.singleShot(5, lambda: scrollbar.setValue(scrollbar.maximum() - old_max))
 
     def on_text_changed(self):
         self.can_send = bool(self.input_box.toPlainText().strip()) and self.agent_free
